@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>星砚 AIGC · 需要口令</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23D8402F'/%3E%3Ctext x='16' y='23' font-size='19' font-family='serif' fill='%23F5F1E8' text-anchor='middle'%3E砚%3C/text%3E%3C/svg%3E">
+<style>
+  :root{--ink:#08080A;--bone:#F5F1E8;--smoke:#8C8880;--cin:#D8402F;--line:#232329}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100svh;display:grid;place-items:center;background:var(--ink);color:var(--bone);
+       font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;padding:24px}
+  .grain{position:fixed;inset:0;pointer-events:none;opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .box{position:relative;width:100%;max-width:420px}
+  .seal{width:34px;height:34px;display:grid;place-items:center;background:var(--cin);color:#fff;
+        font-family:"Noto Serif SC",serif;font-size:20px;font-weight:700;margin-bottom:28px}
+  h1{font-family:"Noto Serif SC",serif;font-size:30px;font-weight:600;letter-spacing:-.01em;line-height:1.2;margin:0 0 12px}
+  p.sub{color:var(--smoke);font-size:13.5px;line-height:1.9;margin:0 0 34px;font-weight:300}
+  label{display:block;font-size:10.5px;letter-spacing:.2em;color:var(--smoke);margin-bottom:10px}
+  input{width:100%;padding:14px 16px;background:#101014;border:1px solid var(--line);border-radius:2px;
+        color:var(--bone);font-size:15px;letter-spacing:.08em;outline:none;transition:border-color .3s}
+  input:focus{border-color:rgba(245,241,232,.34)}
+  button{width:100%;margin-top:12px;padding:14px;background:var(--cin);color:#fff;border:0;border-radius:2px;
+         font-size:13.5px;letter-spacing:.1em;cursor:pointer;transition:background .3s,opacity .3s}
+  button:hover{background:#E4523F}
+  button:disabled{opacity:.55;cursor:default}
+  .msg{margin-top:16px;font-size:12.5px;color:var(--cin);min-height:18px;letter-spacing:.02em}
+  .msg.ok{color:#6F9E93}
+  .foot{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);
+        font-size:10.5px;letter-spacing:.14em;color:#4A4842;line-height:2}
+  .bar{height:1px;background:var(--line);margin-top:18px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:var(--cin);transition:width .25s linear}
+</style>
+</head>
+<body>
+<div class="grain"></div>
+<div class="box">
+  <div class="seal">砚</div>
+  <h1>需要口令</h1>
+  <p class="sub">本站内容已整份加密。输入口令后在本机解密，口令不会发送到任何服务器。</p>
+  <label for="p">ACCESS PHRASE</label>
+  <input id="p" type="password" autocomplete="current-password" spellcheck="false" autofocus>
+  <button id="go">解密并进入</button>
+  <div class="bar"><i id="bar"></i></div>
+  <div class="msg" id="msg"></div>
+  <div class="foot">星砚 AIGC · AES-256-GCM / PBKDF2 210000<br>没有口令，下载到的只是密文</div>
+</div>
+<script>
+(function(){
+  var ITER=210000, SALT_LEN=16, IV_LEN=12;
+  var $=function(id){return document.getElementById(id)};
+  var input=$('p'), btn=$('go'), msg=$('msg'), bar=$('bar');
+  var payload=null, loading=false;
+
+  function setMsg(t,ok){ msg.textContent=t; msg.className='msg'+(ok?' ok':''); }
+
+  function load(){
+    if(payload||loading) return Promise.resolve(payload);
+    loading=true; setMsg('正在取回密文…');
+    return fetch('payload.bin',{cache:'no-store'}).then(function(r){
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.arrayBuffer();
+    }).then(function(b){ payload=new Uint8Array(b); loading=false; setMsg(''); return payload; })
+      .catch(function(e){ loading=false; setMsg('密文加载失败：'+e.message); throw e; });
+  }
+
+  async function unlock(){
+    var pass=input.value;
+    if(!pass){ setMsg('请输入口令'); input.focus(); return; }
+    btn.disabled=true; setMsg('正在解密…');
+    try{
+      var buf=await load();
+      var salt=buf.slice(0,SALT_LEN), iv=buf.slice(SALT_LEN,SALT_LEN+IV_LEN), ct=buf.slice(SALT_LEN+IV_LEN);
+      var base=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);
+      var key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:ITER,hash:'SHA-256'},base,
+        {name:'AES-GCM',length:256},false,['decrypt']);
+      bar.style.width='62%';
+      var pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:iv},key,ct);
+      bar.style.width='100%';
+      var html=new TextDecoder().decode(pt);
+      setMsg('解密完成，正在渲染…',true);
+      document.open(); document.write(html); document.close();
+    }catch(e){
+      bar.style.width='0';
+      btn.disabled=false;
+      setMsg(e && e.name==='OperationError' ? '口令不对，再试一次' : ('解密失败：'+(e&&e.message||e)));
+      input.select();
+    }
+  }
+
+  btn.addEventListener('click',unlock);
+  input.addEventListener('keydown',function(e){ if(e.key==='Enter') unlock(); });
+  load().catch(function(){});
+})();
+</script>
+</body>
+</html>
